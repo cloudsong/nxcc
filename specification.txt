@@ -1,0 +1,498 @@
+NXCC Language Specification 1.0
+
+songyuan : 2011
+
+Hello world First:
+
+#!/usr/local/bin/nxcc
+
+api printf(fmt,...);
+
+func string::show(this)
+{
+	printf("%s\n",this);
+}
+
+func main(argc,argv)
+{
+	///classic ...
+	printf("hello,world!\n");
+	///another way ...
+	"hello,world!".show();
+}
+
+___eof___;///optional ...
+
+another Example:
+#==========================begin-file-content==================================
+#!/usr/local/bin/nxcc
+
+/**
+ * demo code start here ...
+ * 1.'TYPE_NAME' is just used to access method and global function only ...
+ * 2.variable a just a pointer , a number ...
+ * 3.'::' can stand inside a identifier 
+ * 4.obj.method($args) will be translated to TYPE_NAME(obj)::method(obj,$args)
+ * 5.no type-cast , every thing could be a pointer ...funny ...
+ * 6.array , just alloc space only ...
+ */
+
+api printf(fmt,...); ///declare a extern service func 
+
+///define a struct ...
+class type_abc
+{
+    var id;                      ///4B
+    var count : xxx_type;        ///4B
+    var __buff[[16]];            ///16B
+    var __obj_table[2]:yyy_type; ///2x4=8B
+    func hello(){
+    	printf("hello\n");
+    }
+    
+    func echo(str)
+    {
+    	++this.count;
+    	printf("count :%d content :%s\n",this.count,str);
+    }
+    
+    func hack_add(count,...) ///demo only ...
+    {
+    	var ptr;
+    	ptr = &count
+    	
+    	ptr[1] ; ///first args
+    	ptr[2] ; ///seconf args
+    	if(count==2)
+    		return ptr[1]+ptr[2];
+    	return 0;
+    }
+}
+
+///just ...
+func AAA::hello(me)
+{
+	printf("%d say hello...\n",me);
+}
+
+///show string only ...
+func string::show(me)
+{
+	printf("%s\n",me);
+}
+
+///
+/// entry point here
+///
+func main(argc,argv)
+{
+	var i=0,j;
+	var p : AAA;
+	
+	for(i=0;i<1;++i)
+	{
+		"hello,world".show();  ///just hello world ...
+	}
+	
+	p=123;
+	p.hello();                 ///convinent call
+	
+	do_sth1().hack_add(1,2);   ///var-args
+	
+	var p1 : type_abc;
+	
+	p1.id = 0;
+	p1.hello();
+	
+	
+}
+
+func do_sth(p1,p2)
+{
+}
+
+var obj_ptr;
+
+func do_sth1() : type_abc
+{
+	return obj_ptr;
+}
+
+___eof___; ///this means end of source , compiler will complete at this line..
+
+just draw sth necessary here 
+such as a comment , a stroy , a funny joke ? emmm~~~ , just let it be ...
+
+
+#=============================end-file-content=================================
+
+
+-------------------------------------------------------------------------------
+Keywords:
+	
+	sizeof  typedef   struct class  union const
+	api     var       func   break  continue 
+	if      else      for    do     while 
+	return  ___eof___
+
+-------------------------------------------------------------------------------
+Operators:
+
+    ,             ///comma
+    ///-------------binary opcode---------------------
+    =  += -= *= /= %  =  |= &= ^= <<= >>=
+    ///-----------------------------------------------
+    || && |  &  ^  == != >  <  >= <=  >> << + - * / %
+    ///-------------unary opcode----------------------
+    ++            ///pre-inc
+    --            ///pre-dec
+    +             ///postive
+    -             ///negative
+    ~             ///compensation
+    !             ///not
+    ///----------------------------------------------
+    &             ///&address
+    ////---------------------------------------------
+    [[]]          ///char index
+    [[[]]]        ///int index
+    []            ///long index
+    ///----------------------------------------------
+    .             ///.member
+
+-------------------------------------------------------------------------------
+Comment:
+    just same as C language
+    '//' : line comment
+    '#'  : line comment , same as '//'
+    '/*' , '*/' : block comment ...
+   
+Eg:
+
+    #this is a line comment ...
+    //this is a comment ...
+    /* this is block comment ...
+    hahaha...
+    */
+
+-------------------------------------------------------------------------------
+Escape:
+	'\' is used to start a escape char ...
+	same as C Language ...
+	\r
+	\n
+	\t
+	\xHH
+
+-------------------------------------------------------------------------------
+Number :
+
+    1234
+    12345L
+    1234l
+    'a'
+    'abcd'
+    '\x12\xaa'
+    '\r'
+
+-------------------------------------------------------------------------------
+Float:
+
+    .123
+    123.456
+    123F
+    232f
+    
+    ***Double is not supported*** , just using library ...
+-------------------------------------------------------------------------------
+String:
+
+   "hello"
+   "hello,\r\n"
+   "hello,\x10"   "ashdshdasd"    ///string block will be joined while parsing ...
+
+-------------------------------------------------------------------------------
+Identifiers:
+
+	'::' is allowed inside identifier name ...
+	_
+	number or char , the head must be a '_' or char ...
+
+Eg:
+	abc
+	_abc123
+	abc::def
+	
+	abc::_defg123
+	_kkk123::sbdasjdasduygsd
+
+-------------------------------------------------------------------------------
+Variable:
+
+	var $variable_name ;
+	var $variable_name : $type_name;
+
+Eg:
+
+	var abc;
+	var abc,def;
+
+	var a123 : string;
+	var bcd : my_type_t , aaa123 : xxx_t , bbb123;
+
+-------------------------------------------------------------------------------
+Array-Variable:
+
+	[] : long array
+	[[]] : char array
+	[[[]]] : int array
+	
+	***array is only a method to alloc static / stack space*** , funny ...
+
+	var $variable_name[$long_array_size];
+	var $variable_name[$long_array_size] : $type_name;
+	
+	var $variable_name[[$char_array_size]];
+	var $variable_name[[$char_array_size]] : $type_name;
+	
+	var $variable_name[[[$int_array_size]]];
+	var $variable_name[[[$long_array_size]]] : $type_name;
+	
+Eg:
+
+	var aaa1[10] ;      ///total size = 10 * sizeof(long)
+	var aaa2[[10]] ;    ///total size = 10 * sizeof(char)
+	var aaa3[[[10]]] ;  ///total size = 10 * sizeof(int)
+	
+	var aaa11[10] : MY_TYPE ;      ///total size = 10 * sizeof(long)
+	var aaa22[[10]] : MY_TYPE ;    ///total size = 10 * sizeof(char)
+	var aaa33[[[10]]] : MY_TYPE ;  ///total size = 10 * sizeof(int)
+	
+	/// type name of aaa11 = 'array' type-name of aaa11[0] = 'MY_TYPE'
+
+-------------------------------------------------------------------------------
+Constants:
+
+	it seems so funny ...
+	static string and const-declaration will generate a constant 
+	
+	"abc"               ///constant , value = address of string ...
+	const ok=1,false=0; ///const number ...
+	
+-------------------------------------------------------------------------------
+Types:
+
+	type-name is just a name for class-method accessing ...
+	
+	obj.method(args)
+	
+	this will cause a call of global function like following :
+	
+	$TYPE_NAME_OF(obj)::$method_name(obj,args) ...
+	
+	remember this ...
+Eg:
+	func AAA::do_sth(this,args){}
+	
+	var p : AAA;
+	
+	p.do_sth(args);  //<===>  AAA::do_sth(p,args);
+
+-------------------------------------------------------------------------------
+struct & class:
+
+	mark:
+	1.function inside struct/class will add a 'this' parameter as function's 
+	first parameter , and it's type name is struct/class name
+	2.class is same as struct
+	
+	same as C
+	
+Eg:	
+	///defination
+	struct TEST_TYPE
+	{
+		var name ;                ///size +00
+		var id;                   ///size +04
+		var container: TTT;       ///size +04
+		var __name[[16]];         ///size +16
+		var obj_table[10]:OBJ123; ///size +40
+		
+		func hello(aaa)///<==>generate TEST_TYPE::hello(this:TEST_TYPE,aaa);
+		{
+			return this.id + aaa;
+		}
+		
+		func get_size()///<==>generate TEST_TYPE::get_size(this:TEST_TYPE);
+		{
+			///'this' is the first param , added by compiler ...
+			return TEST_TYPE::__SIZE__; ///TEST_TYPE::__SIZE__ is a constant
+		}
+	};//var __SIZE__[0];          ///total:68
+	
+	func OTHER::hello()///<==>Keep 
+	{
+	}
+
+
+-------------------------------------------------------------------------------
+Pointer:
+
+	var $id_name [];
+	var $id_name [] : TYPE;
+
+Eg:
+	var aaa[];
+	var aaa[] : MY_OBJ;///aaa is not a array , has lvalue , father-type=MY_OBJ
+
+-------------------------------------------------------------------------------
+Function:
+
+	///define a extern function
+	func $func_name($arg_list)
+	{
+		...
+	}
+	///define a extern function 
+	func $func_name($arg_list) : $return_type_name
+	{
+		...
+	}
+
+	func $func_name($arg_list) ;                    ///define a extern function 
+	func $func_name($arg_list) : $return_type_name ;///define a extern function 
+	
+	///declare a api function for fast call ...
+	api $func_name($arg_list);
+	api $func_name($arg_list):$ret_type_name;
+
+Eg:
+
+	api printf(fmt,...);   #declare the api / a service function ...
+	
+	func AAA::hello(this,arg1)
+	{
+		printf("hello, this=%d arg1=%d\n",this,arg1);
+	}
+	
+	func main(argc,argv)
+	{
+		var abc : AAA;
+		
+		abc = 123;
+		abc.hello(1000); ///convert automatically 
+		
+		AAA::hello(1,2); ///direct-call
+		
+		return 0;
+	}
+	
+	#output
+	hello, this=123 arg1=1000
+	hello, this=1 arg1=2
+
+
+-------------------------------------------------------------------------------
+Blocks:
+
+	A block is a sequence of declarations and statements within matching brace
+	brackets.
+
+	Block = "{" { Statement ";" } "}" .
+Eg:
+	same as C Language ...
+
+-------------------------------------------------------------------------------
+Method expressions:
+
+	$obj . $method
+	
+	$obj . $member
+	
+eg:
+
+	func BBB::hello(a1,b1)
+	{
+	}
+
+	var aaa : BBB;
+	
+	aaa.hello(123); ///<==> BBB::hello(aaa,123);
+
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+
++----------+
+|  Source  |
++----------+
+     |
+     v
++----------+
+|   lexer  |
++----------+
+     |
+     | [Tokens...]
+     v
++----------+
+|  parser  |
++----------+
+     |
+     | [ASTs...]
+     v
++------------+
+| translator |
++------------+
+     |
+     |[Instructions...]
+     v
++-----------+
+|    vm     |
++-----------+
+
+using 2 address instruction 
+
+reg based vm ...
+
+stack frame layout ...
+
+|-->low-addr-->--                                 -->--high-addr-->|
+|                                                                  |
++----+----+----+----+----+----+----+----+----+-------+-------------+
+|varN|....|var2|var1|regN|....|reg2|reg1|ebp |retAddr|
++----+----+----+----+----+----+----+----+----+-------+-------------+ 
+|                   |                   |
+|<--variable-zone-->|<--register-zone-->|
+
+1.each function has it's own register-set (register-zone) (expression-register)
+2.all expression-registers are mapped to local stack-frame ...
+3.special register:
+  eax : hold function result
+  esp : stack top pointer
+  ebp : stack base pointer
+  eip : current instruction pointer
+
+instruction structure:
+
++------------+
+| opcode     |
++------------+
+| reg1_index |
++--------------------+
+| immed / reg2_index |
++--------------------+
+
+i just think that the aligned word will run faster than byte ..
+so most filed type is int/long ...
+fix me !!!
+
+script image layout:
+
++---------------------+
+|    image-header     |
++---------------------+
+|    text segment     |
++---------------------+
+|    data segment     |
++---------------------+
+
