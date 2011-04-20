@@ -2231,9 +2231,6 @@ static nxc_ast_t *nxc_postfix_do_call(nxc_compiler_t*const compiler,
         nxc_compiler_alloc_xseg_space(compiler,sizeof(nxc_instr_t)*parm_cnt);
     }
 
-    ///---alloc xseg space for instruction---///!!!load method-func!!!
-    nxc_compiler_alloc_xseg_space(compiler,sizeof(nxc_instr_t));
-
     ///---alloc xseg space for instruction---///call instr
     nxc_compiler_alloc_xseg_space(compiler,sizeof(nxc_instr_t));
 
@@ -2273,10 +2270,8 @@ static nxc_ast_t *nxc_postfix_do_member(nxc_compiler_t*const compiler,
     tok = nxc_cur_tok(compiler);
     nxc_member_ast_set_member_name(ast,nxc_token_get_str_val(tok));
 
-    ///===alloc xseg space for prolog===///( add $R_obj , $R_Member ) * {0|1}
-    ///instr:add obj + offset
-    ///instr:push reg
-    //nxc_compiler_alloc_xseg_space(compiler,sizeof(nxc_instr_t)*2);
+    ///===alloc xseg space for prolog===///push $obj_result_reg
+    nxc_compiler_alloc_xseg_space(compiler,sizeof(nxc_instr_t));
 
     ///===alloc xseg space for prolog===///load reg,reg+offset | [reg+offset]
     nxc_compiler_alloc_xseg_space(compiler,sizeof(nxc_instr_t));
@@ -4799,7 +4794,7 @@ ___fast int nxc_translate_index(nxc_compiler_t *const compiler,
  */
 ___fast int nxc_translate_call(nxc_compiler_t *const compiler,nxc_ast_t *ast)
 {
-    int ret,param_size,param_cnt,func_reg,param_reg,obj_reg,opcode;
+    int ret,param_size,param_cnt,func_reg,param_reg,opcode;
     nxc_instr_t *instr;
     nxc_ast_t *func,*param;
     nxc_sym_t *sym;
@@ -4833,7 +4828,7 @@ ___fast int nxc_translate_call(nxc_compiler_t *const compiler,nxc_ast_t *ast)
 
         ///calc total param size ...
         param_size += sizeof(long);
-        param_cnt ++;
+        param_cnt  ++;
         
         ///free result register that held the param result ...
         nxc_free_reg(compiler,param_reg);
@@ -4860,39 +4855,13 @@ ___fast int nxc_translate_call(nxc_compiler_t *const compiler,nxc_ast_t *ast)
         }
         break;
     case nxc_op_member:
-    {
         sym = nxc_ast_get_sym(func); ///get associated symbol ...
         switch (nxc_sym_get_type(sym))
         {
         case nxc_sym_global_function:
             ///>>>1.push obj-result ast parameter<<<
-            instr = nxc_new_instr(compiler,nxc_vmop_push);
-            if(!instr) return -1;
-            obj_reg = nxc_ast_get_result_reg(func); ///get obj-result-reg
-            nxc_instr_set_reg_index1(instr,obj_reg);///param result reg
             param_cnt ++;                           ///update total param info..
             param_size += sizeof(long);
-            nxc_free_reg(compiler,obj_reg);         ///release obj-result-reg
-
-            ///>>>2.generate instruction to load method-function<<<
-            instr = nxc_new_instr(compiler,nxc_vmop_ldi);///load immediate
-            if(!instr) return -1;
-            func_reg = nxc_alloc_reg(compiler);///alloc a reg to hold func addr
-            nxc_instr_set_reg_index1(instr,func_reg);///param result reg
-            nxc_instr_set_immed_l(instr,(long)nxc_sym_get_func_addr(sym));
-
-            ///>>>3.trace this load instruction ...<<<
-            nxc_ast_set_instr(ast,instr); ///associate load-instr with call ast.
-            nxc_ast_set_sym(ast,sym);///associate sym with call-ast ...
-            ///trace global & extern symbol anf fix later ...
-            if (nxc_sym_has_flag(sym,nxc_symflag_extern)){
-                ///trace extern symbol ...
-                nxc_compiler_trace_load_x_sym(compiler,ast);
-            }else{
-                ///trace load-instr and fix address later ...
-                nxc_compiler_trace_load_g_sym(compiler,ast);
-            }
-
             ///>>>4.hold func-sym for param-checking<<<
 
             break;
@@ -4903,7 +4872,6 @@ ___fast int nxc_translate_call(nxc_compiler_t *const compiler,nxc_ast_t *ast)
             break;
         }
         break;
-    }
     default:
         sym =0;
         break;
@@ -4991,7 +4959,7 @@ ___fast int nxc_translate_member(nxc_compiler_t *const compiler,
                                  nxc_ast_t *ast,
                                  int calc_lvalue)
 {
-    int ret,obj_reg,__len,opcode;
+    int ret,obj_reg,func_reg,__len,opcode;
     nxc_instr_t *instr;
     nxc_ast_t *obj;
     nxc_sym_t *sym;
@@ -5025,10 +4993,6 @@ ___fast int nxc_translate_member(nxc_compiler_t *const compiler,
         nxc_ast_error(compiler,ast,"unresolved Object Member '%s'",__name);
         return -1;
     }
-    ///######associate 'symbol-info' with current ast######
-    nxc_ast_set_sym(ast,sym);
-    ///######associate 'result-reg ' with current ast######
-    nxc_ast_set_result_reg(ast,obj_reg);///left as result ...
 
     ///check lvalue ...
     if (calc_lvalue) {
@@ -5050,12 +5014,54 @@ ___fast int nxc_translate_member(nxc_compiler_t *const compiler,
         nxc_instr_set_opcode(instr,opcode);        ///set opcode ...
         nxc_instr_set_reg_index1(instr,obj_reg);   ///reuse obj_result_reg
         nxc_instr_set_immed_l(instr,nxc_sym_get_var_offset(sym));//immediate_off
+
+		///######associate 'result-reg ' with current ast######
+		nxc_ast_set_result_reg(ast,obj_reg);///left as result ...
+		///######associate 'symbol-info' with current ast######
+		nxc_ast_set_sym(ast,sym);
     }
     else ///------------------------------------------------method--------------
     {
         ///###########################do nothing here###########################
         ///1.function symbol is associated with member ast
         ///2.return obj-reg directly!!!
+
+		nxc_ast_t *father;
+		father = nxc_ast_get_father_node(ast);
+		///check if father node is call-ast and 
+		///trnna push obj-result ahead of time
+		if (father && nxc_ast_get_opcode(father)==nxc_op_call)
+		{
+			///>>>1.push obj-result ast parameter<<<
+            instr = nxc_new_instr(compiler,nxc_vmop_push);
+            if(!instr) return -1;
+            nxc_instr_set_reg_index1(instr,obj_reg);///param result reg
+		}
+
+		///release obj-result-reg
+		nxc_free_reg(compiler,obj_reg);
+
+		///>>>2.generate instruction to load method-function<<<
+		instr = nxc_new_instr(compiler,nxc_vmop_ldi);///load immediate
+		if(!instr) return -1;
+		func_reg = nxc_alloc_reg(compiler);///alloc a reg to hold func addr
+		nxc_instr_set_reg_index1(instr,func_reg);///func result reg
+		nxc_instr_set_immed_l(instr,(long)nxc_sym_get_func_addr(sym));
+		
+		///######associate 'result-reg ' with current ast######
+		nxc_ast_set_result_reg(ast,func_reg);
+		
+		///>>>3.trace this load instruction ...<<<
+		nxc_ast_set_instr(ast,instr); ///associate load-instr with call ast.
+		nxc_ast_set_sym(ast,sym);///associate sym with call-ast ...
+		///trace global & extern symbol anf fix later ...
+		if (nxc_sym_has_flag(sym,nxc_symflag_extern)){
+			///trace extern symbol ...
+			nxc_compiler_trace_load_x_sym(compiler,ast);
+		}else{
+			///trace load-instr and fix address later ...
+			nxc_compiler_trace_load_g_sym(compiler,ast);
+        }
     }
 
     ///>>>inherit type of member<<<
@@ -6022,28 +6028,38 @@ static int nxc_translate(nxc_compiler_t *const compiler,
     ///-------------------------------statement---------------------------------
     case nxc_op_expression:
         ret = nxc_translate_expr_stmt(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_if:
         ret = nxc_translate_if_stmt(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_for:
         ret = nxc_translate_for_stmt(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_while:
         ret = nxc_translate_while_stmt(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_do:
         ret = nxc_translate_do_stmt(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_break:
     case nxc_op_continue:
         ret = nxc_translate_break_continue(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_return:
         ret = nxc_translate_return_stmt(compiler,ast);
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     case nxc_op_block:
         ret = nxc_translate_stmt_block(compiler,ast);
+		///check expression-stack
+		if(compiler->expr_sp) nxc_ast_error(compiler,ast,"register-leak!!!");
         return ret;
     default:
         nxc_ast_error(compiler,ast,"unknown ast opcode:%d",nxc_ast_get_opcode(ast));
