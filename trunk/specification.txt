@@ -1,8 +1,8 @@
 NXCC Language Specification 1.0
 
-songyuan : 2011
+songyuan : aboutin.me@gmail.com
 
-Hello world First:
+Hello world:
 
 #!/usr/local/bin/nxcc
 
@@ -474,11 +474,11 @@ stack frame layout ...
 
 instruction structure:
 
-+------------+
-| opcode     |
-+------------+
-| reg1_index |
 +--------------------+
+|      opcode        |
+|--------------------|
+|    reg1_index      |
+|--------------------|
 | immed / reg2_index |
 +--------------------+
 
@@ -494,5 +494,34 @@ script image layout:
 |    text segment     |
 +---------------------+
 |    data segment     |
+|---------------------|
+| +----------------+  |
+| |Export SYM Table|  |
+| +----------------+  |
+| |    name-ptr    |  |
+| |----------------|  |
+| |  Abs-Address   |  |
+| +----------------+  |
+| |    ... ...     |  |
+| +----------------+  |
+| +----------------+  |
+| |Import SYM Table|  |
+| +----------------+  |
+| |    name-ptr    |  |
+| |----------------|  |
+| |   p_position   |  |
+| +----------------+  |
+| |    ... ...     |  |
+| +----------------+  |
+| +----------------+  |
+| |RelocationTable |  |
+| +----------------+  |
+| |   RelocType    |  |
+| |----------------|  |
+| | p_RelocPosition|  |
+| +----------------+  |
+| |    ... ...     |  |
+| +----------------+  |
 +---------------------+
+
 
