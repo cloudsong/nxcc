@@ -1362,6 +1362,7 @@ static char *__nxc_vm_opcode_name[] =
     "return_val",           ///"return  $expr"
     "ret",                  ///"ret"
     "push",                 ///"push     $reg"
+	"pushi",                 ///"push     $immediate"
     "pop",                  ///"pop
     "enter",                ///enter func ///this will be done automatically ...
     "leave",                ///leave func ///this is done at return statement ..
@@ -1980,7 +1981,7 @@ static nxc_ast_t * nxc_new_ast_node(nxc_compiler_t*const compiler)
 {
     nxc_ast_t *ast;
 
-    ast = nxc_compiler_malloc(compiler,sizeof(*ast));
+    ast = (nxc_ast_t *)nxc_compiler_malloc(compiler,sizeof(*ast));
     if(ast)
     {
         nxc_memset(ast,0,sizeof(*ast));///zero all as default !!!
@@ -2030,10 +2031,9 @@ static nxc_ast_t *__nxc_parse_id_factor(nxc_compiler_t*const compiler,char*name)
  * return 0 means error ...
  * >>>Won't prefetch next token<<<
  */
-___fast nxc_ast_t *nxc_parse_id_factor(nxc_compiler_t*const compiler)
+___fast 
+nxc_ast_t *nxc_parse_id_factor(nxc_compiler_t*const compiler,nxc_token_t *tok)
 {
-    nxc_token_t *tok;
-    tok = nxc_cur_tok(compiler);
     return __nxc_parse_id_factor(compiler,nxc_token_get_str_val(tok));
 }
 
@@ -2043,8 +2043,8 @@ ___fast nxc_ast_t *nxc_parse_id_factor(nxc_compiler_t*const compiler)
  * return 0 means error ...
  * >>>Won't prefetch next token<<<
  */
-static nxc_ast_t *__nxc_parse_const_factor(nxc_compiler_t*const compiler,
-                                           nxc_token_t *tok)
+static 
+nxc_ast_t *nxc_parse_const_factor(nxc_compiler_t*const compiler,nxc_token_t*tok)
 {
     int token;
     nxc_ast_t *ast_node;
@@ -2087,18 +2087,6 @@ static nxc_ast_t *__nxc_parse_const_factor(nxc_compiler_t*const compiler,
     }
     return 0;
 }
-/**
- * parse a const factor and generate a ast 
- * return ast node created for the factor ...
- * return 0 means error ...
- * >>>Won't prefetch next token<<<
- */
-___fast nxc_ast_t *nxc_parse_const_factor(nxc_compiler_t*const compiler)
-{
-    nxc_token_t *tok;
-    tok   = nxc_cur_tok(compiler);
-    return __nxc_parse_const_factor(compiler,tok);
-}
 
 /**
  * parse expression factor ...
@@ -2122,11 +2110,11 @@ static nxc_ast_t *nxc_parse_factor(nxc_compiler_t*const compiler)
     switch (token)
     {
     case nxc_token_id:
-        return nxc_parse_id_factor(compiler);
+        return nxc_parse_id_factor(compiler,tok);
     case nxc_token_const_long:
     case nxc_token_const_float:
     case nxc_token_const_string:
-        return nxc_parse_const_factor(compiler);
+        return nxc_parse_const_factor(compiler,tok);
     case nxc_token_left_paren:///'('
         nxc_do_lex(compiler);///skip the '('
         ///this is a expression , larger than binary expression ...
@@ -3174,8 +3162,7 @@ static nxc_ast_t *nxc_parse_statement_block(nxc_compiler_t*const compiler)
 static nxc_str_node_t* __nxc_parse_a_var(nxc_compiler_t *const compiler,
                                          int         *index_type,
                                          int         *index_cnt,                             
-                                         char        **type_name,
-                                         nxc_token_t *const_tok)///init const
+                                         char        **type_name)///init const
 {
     int token;
     int is_array;
@@ -3227,11 +3214,18 @@ static nxc_str_node_t* __nxc_parse_a_var(nxc_compiler_t *const compiler,
             if(nxc_expect_current(compiler,nxc_token_const_long)) return 0;         
             tok = nxc_cur_tok(compiler);
             *index_cnt =nxc_token_get_long_val(tok);///read number ...
-            if(*index_cnt <= 0){
+			token = nxc_do_lex(compiler); ///read '*'
+			if(token == nxc_token_mul){   ///just a shit hack for convinence...
+				if(nxc_expect(compiler,nxc_token_const_long)) return 0;         
+				tok = nxc_cur_tok(compiler);
+				*index_cnt *=nxc_token_get_long_val(tok);///read number and calc
+				nxc_do_lex(compiler);     ///skip number ...
+			}
+			if(*index_cnt <= 0){
                 nxc_error(compiler,"array size can not be '0'");
                 return 0;
             }
-            if(nxc_expect(compiler,right_bracket)) return 0;///check ']'
+            if(nxc_expect_current(compiler,right_bracket)) return 0;///check ']'
         }
         else
         {
@@ -3255,28 +3249,6 @@ static nxc_str_node_t* __nxc_parse_a_var(nxc_compiler_t *const compiler,
         token = nxc_do_lex(compiler);
     }
 
-    ///trnna parse initializer ...
-    if (token == nxc_token_assign)
-    {
-        token = nxc_do_lex(compiler);///get next ...
-        switch (token)
-        {
-        case nxc_token_const_long:
-        case nxc_token_const_float:
-        case nxc_token_const_string:
-            nxc_token_copy(const_tok,nxc_cur_tok(compiler));
-            break;
-        default:
-            nxc_error(compiler,"initializer should be a constant");
-            return 0;
-        }
-        token = nxc_do_lex(compiler);///prefetch next ...
-    }
-    else
-    {
-        nxc_token_set_type(const_tok,0); ///mark 'no-initializer' !!!
-    }
-
     ///return var name ...
     return str_node;
 }
@@ -3286,9 +3258,8 @@ static nxc_str_node_t* __nxc_parse_a_var(nxc_compiler_t *const compiler,
  * generate load ast for variable initializer
  * @return 0 means okay ...
  */
-static int nxc_gen_var_initializer_ast(nxc_compiler_t*const compiler,
-                                       char*var_name,
-                                       nxc_token_t *const_tok)
+static 
+int nxc_parse_lvar_initializer(nxc_compiler_t*const compiler,char*var_name)
 {
     nxc_ast_t *ast,*left,*right,*father;
     nxc_ast_t *expr;
@@ -3318,19 +3289,19 @@ static int nxc_gen_var_initializer_ast(nxc_compiler_t*const compiler,
     nxc_ast_set_father_node(ast,expr);   ///link to father
     nxc_expr_stmt_ast_set_expr(expr,ast);///tell father to trace me
     
-    ///parse left id and gen ast ...
+    ///>>>1.parse left id and gen ast ...
     left = __nxc_parse_id_factor(compiler,var_name);
     if (!left) return -1;
     ///trace left
     nxc_ast_set_father_node(left,ast); ///fix left's father to me
     nxc_expr_ast_set_left(ast,left);   ///trace left ast ...
 
-    ///parse right const and gen ast ...
-    right = __nxc_parse_const_factor(compiler,const_tok);
-    if (!right) return -1;
-    ///trace right
+	///>>>2.parse right as assignment_expression !!!
+	right = nxc_parse_assignment_expression(compiler);
+	if (!right) return -1;
+	///trace right
     nxc_ast_set_father_node(right,ast); ///fix right's father to me
-    nxc_expr_ast_set_right(ast,right);   ///trace right ast ...
+    nxc_expr_ast_set_right(ast,right);  ///trace right ast ...
 
     return 0;
 }
@@ -3338,6 +3309,7 @@ static int nxc_gen_var_initializer_ast(nxc_compiler_t*const compiler,
 /**
  * parse a var and generate symbol for it ...
  * return nonzero means error ...
+ * >>>Will prefetch next token<<<
  */
 static int nxc_parse_a_var(nxc_compiler_t*const compiler,int sym_type)
 {
@@ -3346,12 +3318,11 @@ static int nxc_parse_a_var(nxc_compiler_t*const compiler,int sym_type)
     int is_array,index_type,index_cnt,sym_flag;
     int namelen,var_size;
     nxc_str_node_t *str_node;
-    nxc_token_t const_tok[1];
     char __name[128];
     int __len=0;
 
     ///1.parse name , index type , initializer .
-    str_node = __nxc_parse_a_var(compiler,&index_type,&index_cnt,&type_name,const_tok);
+    str_node = __nxc_parse_a_var(compiler,&index_type,&index_cnt,&type_name);
     if (!str_node) return -1;
     name     = nxc_str_node_get_str(str_node);
     namelen  = nxc_str_node_get_len(str_node);
@@ -3395,62 +3366,44 @@ static int nxc_parse_a_var(nxc_compiler_t*const compiler,int sym_type)
     {
         index_cnt = 0;          ///convert to pointer ...
         var_size = sizeof(long);///convert to pointer ...
-        if (nxc_token_get_type(const_tok)){
-            nxc_error(compiler,"parameter's initializer is not supported");
-            return -1;
-        }
         nxc_add_flag(sym_flag,nxc_symflag_lvalue); ///has lvalue ...
-    }
-    else         ///this is a local var or global var or member ...
-    {
+    }else{                            ///this is a lvar or gvar or member ...
         if (!index_cnt){ ///hack pointer :zero array treat as pointer ...
             var_size = sizeof(long);
             nxc_add_flag(sym_flag,nxc_symflag_lvalue); ///has lvalue ...
-        }
-        else{
+        }else{
             nxc_add_flag(sym_flag,nxc_symflag_array);///mark array,no lvalue...
         }
     }
     ///5.create symbol 
-    switch (sym_type)
-    {
-    case nxc_sym_local_var:
-    case nxc_sym_local_param:
-        sym = nxc_new_sym(compiler,str_node,sym_type,var_size,sym_flag);
-        if (!sym) return -1;
-        ///if initializer is available , just add a ast ...
-        if (nxc_token_get_type(const_tok)){
-            if(index_cnt){
-                nxc_error(compiler,"array initializer is not supported!");
-                return -1;
-            }
-            if (nxc_gen_var_initializer_ast(compiler,name,const_tok)){
-                nxc_error(compiler,"error occur while generatin initializer!");
-                return -1;
-            }
-        }
-        break;
-    case nxc_sym_global_var:
-    case nxc_sym_member:
-        sym = nxc_new_sym(compiler,str_node,sym_type,var_size,sym_flag);
-        if (!sym) return -1;
-        if (nxc_token_get_type(const_tok)){
-            nxc_error(compiler,"GlobalVar/Member-initializer is not supported");
-            return -1;
-        }
-        break;
-    }
+	sym = nxc_new_sym(compiler,str_node,sym_type,var_size,sym_flag);
+    if (!sym) return -1;
     
     ///fix variable typename (and store to associated symbol)...
     if (is_array){///(with pointer included ...)
         ///the pointer's type is array , father type keep same with array...
         nxc_sym_set_typename(sym,"__array");    ///set current type ...
         nxc_sym_set_f_typename(sym,type_name);  ///set father type ...
-    }
-    else{///var only ...
+    }else{///var only ...
         nxc_sym_set_typename(sym,type_name);    ///save current type ...
         nxc_sym_set_f_typename(sym,0);          ///no father type ...
     }
+
+	///trnna parse the initializer for local var !!!
+	if(nxc_cur_tok_type(compiler) == nxc_token_assign)
+	{
+		nxc_do_lex(compiler);///skip '='
+		if (sym_type == nxc_sym_local_var){
+			if (is_array){
+				nxc_error(compiler,"array initializer is not supported!!!");
+				return -1;
+			}
+			if (nxc_parse_lvar_initializer(compiler,name)){
+				nxc_error(compiler,"failed to parse initializer!!!");
+				return -1;
+			}
+		}
+	}
     
     return 0;
 }
@@ -3589,6 +3542,9 @@ static int nxc_parse_func_declaration(nxc_compiler_t*const compiler,int is_api)
 
         compiler->curr_function = 0;
         compiler->curr_loop_node = 0;
+
+		///prefetch next
+		nxc_do_lex(compiler);
         return 0;
     }
 
@@ -3630,9 +3586,8 @@ static int nxc_parse_struct_declaration(nxc_compiler_t*const compiler)
 {
     int token;
     nxc_token_t *tok;
-
+	int __len;
     char __name[128];
-    int __len;
 
     if(nxc_expect(compiler,nxc_token_id))return -1;
     tok = nxc_cur_tok(compiler);
@@ -3641,7 +3596,18 @@ static int nxc_parse_struct_declaration(nxc_compiler_t*const compiler)
     compiler->curr_struct_namelen = nxc_token_get_len(tok);
     compiler->curr_struct_size    = 0; ///reset struct size ...
 
-    if(nxc_expect(compiler,nxc_token_left_brace)) return -1; ///check '{'
+	token = nxc_do_lex(compiler);
+	if (token == nxc_token_semicolon) ///check ';'
+	{
+		///reset cotext ...
+		compiler->curr_struct_name    = 0;
+		compiler->curr_struct_namelen = 0;
+		compiler->curr_struct_size    = 0;
+		nxc_do_lex(compiler); ///prefetch next token ...
+		return 0;
+	}
+
+    if(nxc_expect_current(compiler,nxc_token_left_brace)) return -1;///check '{'
 
     ///fet 'var' or 'func'
     token = nxc_do_lex(compiler);
@@ -3657,6 +3623,9 @@ static int nxc_parse_struct_declaration(nxc_compiler_t*const compiler)
             break;
         case nxc_token_func:
             if(nxc_parse_func_declaration(compiler,0)) return -1;
+            break;
+		case nxc_token_api:
+			if(nxc_parse_func_declaration(compiler,1)) return -1;
             break;
         default:
             nxc_error(compiler,"only var/func can be declared inside struct!");
@@ -4336,6 +4305,9 @@ void nxc_dump_a_instr(nxc_compiler_t *const compiler,nxc_instr_t *instr)
     case nxc_vmop_push:                 ///"push     $reg"
         nxc_printf(compiler,"push reg%d\n",__nxc_reg1(instr));
         break;
+	case nxc_vmop_pushi:                 ///"push     $reg"
+        nxc_printf(compiler,"push %d\n",nxc_instr_get_immed_l(instr));
+        break;
     case nxc_vmop_pop:                  ///"pop
         nxc_printf(compiler,"%s\n",name);
         break;
@@ -4816,6 +4788,21 @@ ___fast int nxc_translate_call(nxc_compiler_t *const compiler,nxc_ast_t *ast)
                                      list_head,
                                      nxc_ast_t)
     {
+		///const hack here ...
+		if ((nxc_ast_get_opcode(param) == nxc_op_const) &&
+			((nxc_const_ast_get_type(param) == nxc_token_const_long)||
+			 (nxc_const_ast_get_type(param) == nxc_token_const_float))
+		   )
+		{
+			///push param into stack ...
+			instr = nxc_new_instr(compiler,nxc_vmop_pushi);
+			if(!instr) return -1;
+			nxc_instr_set_immed_l(instr,nxc_const_ast_get_long_val(param));
+			///calc total param size ...
+			param_size += sizeof(long);
+			param_cnt  ++;
+			continue;
+		}
         ///calc rvalue of curr param ...
         ret = nxc_translate(compiler,param,0);
         if(ret) return ret;
@@ -5006,8 +4993,12 @@ ___fast int nxc_translate_member(nxc_compiler_t *const compiler,
     {
         if (calc_lvalue) ///>>>lvalue<<<
             opcode = nxc_vmop_addi; ///obj_reg = obj_reg + offset
-        else             ///>>>rvalue<<<
+        else{            ///>>>rvalue<<<
             opcode = nxc_vmop_ldx_l;///obj_reg = [obj_reg + offset]
+			if(nxc_sym_has_flag(sym,nxc_symflag_array)){///handle array type!!!
+				opcode = nxc_vmop_addi;
+			}
+		}
         ///generate a instruction to calc member-result (obj+offset)
         instr = nxc_new_instr(compiler,0);
         if(!instr) return -1;
@@ -5310,21 +5301,24 @@ ___fast int nxc_translate_assign(nxc_compiler_t *const compiler,
     ///determine opcode ...
     switch (nxc_ast_get_opcode(left))
     {
-    case nxc_op_index8:  ///'[['
+    case nxc_op_index8:   ///'[['
         opcode_base = nxc_vmop_st8;
         break;
-    case nxc_op_index16: ///'[[[['
+    case nxc_op_index16:  ///'[[[['
         opcode_base = nxc_vmop_st16;
         break;
-    case nxc_op_index32:   ///'[[['
+    case nxc_op_index32:  ///'[[['
         opcode_base = nxc_vmop_st32;
         break;
     case nxc_op_index_l:  ///'['
         opcode_base = nxc_vmop_st_l;
         break;
-    case nxc_op_id:          ///'$id'
+    case nxc_op_id:       ///'$id'
         opcode_base = nxc_vmop_st_l;
         break;
+	case nxc_op_member:   ///'.' will cause a long operation!!!
+		opcode_base = nxc_vmop_st_l;
+		break;
     default:
         nxc_ast_error(compiler,ast,"invalid lvalue node");
         return -1;
@@ -6292,6 +6286,14 @@ static int nxc_gen_data_segment(nxc_compiler_t*const compiler)
     nxc_instr_t *instr;
 
     ///export symbol table
+	///BUG:2011-4-27 23:28:57:recalc the exported sym count!!!
+	compiler->global_sym_count = 0;
+	nxc_dlist_for_each_entry(sym,&compiler->global_sym_list,node.gsym_node,nxc_sym_t)
+    {
+		///skip extern symbol ...
+		if (nxc_sym_has_flag(sym,nxc_symflag_extern)) continue;
+		compiler->global_sym_count++;
+    }
     exp_sym_table_size    = compiler->global_sym_count * ( sizeof(long) * 2 );
     nxc_compiler_alloc_dseg_space(compiler,exp_sym_table_size);
 
@@ -6329,9 +6331,9 @@ static int nxc_gen_data_segment(nxc_compiler_t*const compiler)
     compiler->image->data_size = 0;               ///reset 'real-size' ...
     compiler->image->data_seg_size = total_dsize; ///save max size ...
     
-    /**
-     * build string section ..
-     */
+    ///
+    /// build string section ..
+    ///
     nxc_dlist_for_each_entry(str_node,&compiler->const_str_list,trace_node,nxc_str_node_t)
     {
         ///alloc space and write data ...
@@ -6342,9 +6344,9 @@ static int nxc_gen_data_segment(nxc_compiler_t*const compiler)
         nxc_str_node_set_ext_data(str_node,ptr+8);///save addr allocated
     }
 
-    /**
-     * build `gloal-variable-data` section and fix symbol address...
-     */
+    ///
+    /// build `gloal-variable-data` section and fix symbol address...
+    ///
     nxc_dlist_for_each_entry(sym,&compiler->global_sym_list,node.gsym_node,nxc_sym_t)
     {
         ///skip non variable ...
@@ -6380,6 +6382,9 @@ static int nxc_gen_data_segment(nxc_compiler_t*const compiler)
     ///do build table ...
     nxc_dlist_for_each_entry(sym,&compiler->global_sym_list,node.gsym_node,nxc_sym_t)
     {
+		///skip extern symbol ...
+		if (nxc_sym_has_flag(sym,nxc_symflag_extern)) continue;
+		///debug output ...
         if (compiler->enable_debug_info)
             nxc_printf(compiler,"Export SYM:%s %d\n",nxc_sym_get_name(sym),nxc_sym_get_namelen(sym));
         ///write symbol-name address
@@ -6458,7 +6463,7 @@ static int nxc_gen_data_segment(nxc_compiler_t*const compiler)
         l_ptr[1] = (long)nxc_instr_get_operand2_addr(instr);///DATA:OrigRelocPos
         
         ///fix instruction operands ...
-        nxc_instr_set_func_addr(instr,nxc_sym_get_var_addr(sym));
+        nxc_instr_set_func_addr(instr,(nxc_instr_t *)nxc_sym_get_var_addr(sym));
         ///move to next ...
         l_ptr+=2;
     }
@@ -6469,6 +6474,7 @@ static int nxc_gen_data_segment(nxc_compiler_t*const compiler)
     {
         ///get associated symbol ...
         str_node = nxc_const_ast_get_str_node(ast); 
+		///debug output ...
         if (compiler->enable_debug_info)
             nxc_printf(compiler,"fix instr:load_const [%s]\n",nxc_str_node_get_str(str_node));
         ///get associated instruction (load $reg,$constant)...
@@ -6550,7 +6556,7 @@ int nxc_init_compiler(nxc_compiler_t *compiler,
     nxc_compiler_init_load_lvar_list(compiler);
 
     if (!max_parse_buff) max_parse_buff = 8000;///8K at most by default ...
-    if (!parse_buff) parse_buff = nxc_compiler_malloc(compiler,max_parse_buff);
+    if (!parse_buff)parse_buff=(char*)nxc_compiler_malloc(compiler,max_parse_buff);
     if (parse_buff){
         nxc_lex_set_parsebuf(compiler->lexer,parse_buff,max_parse_buff);
     }
@@ -7351,9 +7357,8 @@ __manual_eip_start_here:
             _ctx->ebp = ebp;
             ///[2].call trap handler (of current instruction)...
             //eip->u.trap_func(_ctx);
-            nxc_instr_get_trap_func(eip)(_ctx);
+            eax = (long)nxc_instr_get_trap_func(eip)(_ctx);
             ///[3].update context ...
-            eax = _ctx->eax;
             esp = _ctx->esp;
             eip = _ctx->eip;///>>>>>>>>>>>>Move to next Instr!!!<<<<<<<<<<<<<<<<
             ///trnna pre-execute POST_CALL!!!
@@ -7373,10 +7378,9 @@ __manual_eip_start_here:
             _ctx->ebp = ebp;
             ///[2].call trap handler ...
             ///regA = target function's trap_instruction's addrss ...
-            nxc_instr_get_trap_func(((nxc_instr_t *)nxc_regA)) (_ctx);
+            eax = (long)nxc_instr_get_trap_func(((nxc_instr_t *)nxc_regA)) (_ctx);
             
             ///[3].update context ...
-            eax = _ctx->eax;
             esp = _ctx->esp;
             eip = _ctx->eip;///>>>>>>>>>>>>Move to next Instr!!!<<<<<<<<<<<<<<<<
             ///trnna pre-execute POST_CALL!!!
@@ -7440,6 +7444,9 @@ __manual_eip_start_here:
             //!}
         case nxc_vmop_push:
             nxc_push(nxc_regA);
+            continue;
+		case nxc_vmop_pushi:
+            nxc_push(nxc_instr_get_immed_l(eip));
             continue;
         case nxc_vmop_pop:
             nxc_pop();

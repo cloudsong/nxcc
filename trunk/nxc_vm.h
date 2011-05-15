@@ -68,7 +68,7 @@
     typedef unsigned long long     __uint64;
 #endif
 ///rename to _fast_
-#define ___fast                    static inline
+#define ___fast                    static __inline
 
 #define nxc_char_shift     0
 #define nxc_short_shift    1
@@ -746,7 +746,7 @@ ___fast unsigned int nxc_elf_hash(char* str, unsigned int len)
  */
 static int nxc_default_hash_func(nxc_hash_node_t *node)
 {
-    return (int)nxc_elf_hash(node->key,node->klen);
+    return (int)nxc_elf_hash((char *)node->key,node->klen);
 }
 
 /**
@@ -1508,6 +1508,7 @@ enum _nxc_vm_opcode
     nxc_vmop_return_val,     ///"return   $expr"
     nxc_vmop_ret,            ///"ret"
     nxc_vmop_push,           ///"push     $value"
+	nxc_vmop_pushi,          ///"push     $immediate ...
     nxc_vmop_pop,            ///"pop
     nxc_vmop_enter,          ///enter func
     nxc_vmop_leave,          ///leave func
@@ -1774,7 +1775,7 @@ struct _nxc_ast
 /**
  * trap handler!!!
  */
-typedef void (*nxc_api_proc_t)(nxc_vm_ctx_t *ctx);
+typedef void* (*nxc_api_proc_t)(nxc_vm_ctx_t *ctx);
 
 /**
  * the compoun instruction object ...
@@ -1899,7 +1900,7 @@ struct _nxc_script_image
 
 /**===========================================================================*/
 ///output handler ...
-typedef int(*nxc_vprintf_t)(nxc_compiler_t*compiler,char*format,nxc_va_list arg);
+typedef int(*nxc_vprintf_t)(void*data,char*format,nxc_va_list arg);
 
 /**
  * compiler object ...
@@ -1958,7 +1959,7 @@ ___fast void nxc_sym_del_flag(nxc_sym_t*sym,int flag){nxc_remove_flag(sym->sym_f
 ___fast int  nxc_sym_is_array(nxc_sym_t *sym){return nxc_is_flag_set(sym->sym_flag,nxc_symflag_array);}
 
 ___fast void  nxc_sym_set_name(nxc_sym_t*sym,char*_name){sym->hash_node.key = _name;}
-___fast char* nxc_sym_get_name(nxc_sym_t*sym){return sym->hash_node.key;}
+___fast char* nxc_sym_get_name(nxc_sym_t*sym){return (char*)sym->hash_node.key;}
 ___fast void  nxc_sym_set_namelen(nxc_sym_t*sym,int _namelen){sym->hash_node.klen = _namelen;}
 ___fast int   nxc_sym_get_namelen(nxc_sym_t*sym){return sym->hash_node.klen;}
 
@@ -2221,6 +2222,26 @@ ___fast void nxc_compiler_trace_const_str(nxc_compiler_t*const compiler,nxc_str_
 }
 
 /**===========================================================================*/
+
+/**
+ * output gateway ...
+ */
+___fast
+int __nxc_printf(nxc_vprintf_t vprintf_proc,void*data,const char *fmt,...)
+{
+    nxc_va_list args;
+    int rv = 0;
+
+    if(vprintf_proc)
+    {
+        nxc_va_start( args, fmt );
+        rv = vprintf_proc(data,(char*)fmt,args);
+        nxc_va_end( args );
+    }
+    
+    return rv;
+}
+
 /**
  * output gateway ...
  */
@@ -2232,7 +2253,7 @@ ___fast int nxc_printf(nxc_compiler_t* const compiler,const char *fmt, ... )
     if(compiler->vprintf_proc)
     {
         nxc_va_start( args, fmt );
-        rv = compiler->vprintf_proc((nxc_compiler_t*)compiler,(char*)fmt,args);
+        rv = compiler->vprintf_proc(compiler,(char*)fmt,args);
         nxc_va_end( args );
     }
     
@@ -2243,7 +2264,7 @@ ___fast int nxc_vprintf(nxc_compiler_t* const compiler,const char*fmt,va_list ar
     int rv;
     if(compiler->vprintf_proc)
     {
-        rv = compiler->vprintf_proc((nxc_compiler_t*)compiler,(char*)fmt,args);
+        rv = compiler->vprintf_proc(compiler,(char*)fmt,args);
         va_end( args );
     }
     return 0;
@@ -2487,27 +2508,38 @@ static int nxc_script_image_do_reloc(nxc_script_image_t *image,
     return 0;
 }
 
+
 /**
  * fix import table , fix api address ...
  * @return 0 means okay , none-zero means unresolved symbol name ...
  */
 static char* nxc_script_image_do_fix_api(nxc_script_image_t *image,
-                                         nxc_api_table_t *api_table)
+                                         nxc_api_table_t *api_table,
+										 nxc_vprintf_t    output_proc,
+										 void            *output_ctx)
 {
+	int i;
     long *ptr;
-    int i;
     void *addr;
+	char *first_unresolved;
 
+	first_unresolved = 0;
     ptr = (long *)((long)image->data_base + image->import_table_offset);
     for (i=0;i<image->import_count;i++)
     {
         addr = nxc_find_api(api_table,(char*)ptr[0]);
-        if (!addr) return (char*)ptr[0];
-        *(void **)ptr[1] = addr; ///find target by pointer ...
+        if (!addr){
+			if(!first_unresolved) first_unresolved = (char*)ptr[0];
+			///we goon fix ...
+			__nxc_printf(output_proc,output_ctx,"unresolved API '%s'\n",(char*)ptr[0]);
+		}else{
+			__nxc_printf(output_proc,output_ctx,"fix api '%s'\n",(char*)ptr[0]);
+			*(void **)ptr[1] = addr; ///find target by pointer ...
+		}
         ptr+=2;
     }
 
-    return 0;
+    return first_unresolved;
 }
 
 /**
@@ -2523,7 +2555,7 @@ ___fast void*nxc_script_image_do_find_sym_addr(nxc_script_image_t*image,
     ptr = (long *)((long)image->data_base + image->export_table_offset);
     for (i=0;i<image->export_count;i++)
     {
-        if (!nxc_memcmp((void*)ptr[0],name,len)) return (void*)ptr[1];
+        if (!nxc_memcmp((void*)ptr[0],name,len+1)) return (void*)ptr[1];
         ptr+=2;
     }
     
@@ -2599,7 +2631,7 @@ ___fast nxc_script_image_t *nxc_compile_ex(char*source,char*fname,
     nxc_init_compiler(compiler,malloc_proc,free_proc,alloc_data,parse_buff,8000);
     ///install output-handler ...
     compiler->vprintf_proc = output_proc;
-    compiler->enable_debug_info = 1;
+    compiler->enable_debug_info = 0;
 
     ///compile script ...
     fname_table[0] = fname;
@@ -2671,17 +2703,17 @@ ___fast long nxc_call_ex(nxc_instr_t*xaddr,void*stack,int stack_size,int argc,vo
  * @return non-zero means error ...
   * return value stored in _ctx->eax
  */
+#define nxc_def_stack_sz 16*1024
 ___fast long nxc_call(nxc_instr_t*xaddr,int argc,...)
 {
     int i;
     nxc_va_list argp;
-    nxc_vm_ctx_t ctx;
+    nxc_vm_ctx_t ctx[1];
     void *argv[16];
-    #define nxc_vm_default_stack_size 64*1024
-    char stack[nxc_vm_default_stack_size];///stack size 64KB
+    char stack[nxc_def_stack_sz];///stack size 16KB
 
     ///init default ctx for call ...
-    nxc_init_vm_ctx(&ctx,(void*)stack,nxc_vm_default_stack_size);
+    nxc_init_vm_ctx(ctx,(void*)stack,nxc_def_stack_sz);
 
     if (argc>15) argc = 15;
 
@@ -2692,7 +2724,11 @@ ___fast long nxc_call(nxc_instr_t*xaddr,int argc,...)
     }
     nxc_va_end(argp);
 
-    return nxc_do_call(&ctx,xaddr,argc,argv);
+    return nxc_do_call(ctx,xaddr,argc,argv);
 }
+
+#define __arg(idx)   (ctx->esp[(idx)])
+#define __parg(idx)  (&ctx->esp[(idx)])
+#define __return(p)  return (void*)((p))
 
 #endif

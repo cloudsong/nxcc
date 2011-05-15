@@ -34,6 +34,13 @@ void xfree(void*ptr,int size)
     free(ptr);
 }
 
+/**
+ * vm's output callback ...
+ */
+int output_proc(void*context,const char *fmt,va_list args){
+    return vprintf(fmt,args);
+}
+
 
 #define __arg(idx)   (ctx->esp[(idx)])
 #define __parg(idx)  (&ctx->esp[(idx)])
@@ -41,17 +48,17 @@ void xfree(void*ptr,int size)
 /**
  * format : int printf(char *fmt,...);
  */
-void do_printf(nxc_vm_ctx_t *ctx)
+void* do_printf(nxc_vm_ctx_t *ctx)
 {
-    ctx->eax = (long)vprintf((char *)__arg(0),(char *)__parg(1));
+    return (void*)vprintf((char *)__arg(0),(char *)__parg(1));
 }
 
 /**
  * format : int printf(char *fmt,...);
  */
-void do_print_float(nxc_vm_ctx_t *ctx)
+void* do_print_float(nxc_vm_ctx_t *ctx)
 {
-    printf("%f",*(float *)__parg(0));
+   return (void*)printf("%f",*(float *)__parg(0));
 }
 
 /**
@@ -110,14 +117,6 @@ char *nxc_load_file(char *path,int max_sz,int *bytes_read)
     return 0;
 }
 
-/**
- * vm's output callback ...
- */
-int output_gw(nxc_compiler_t *compiler,const char *fmt,va_list args)
-{
-    return vprintf(fmt,args);
-}
-
 nxc_script_image_t *dup_image(nxc_script_image_t *image)
 {
     char *ptr;
@@ -153,13 +152,19 @@ int main_compile_and_reloc(int argc,char *argv[])
     
     ret = nxc_init_api_table(api_table,xmalloc,xfree,0);
     if (nxc_register_api(api_table,"printf",do_printf))
+	{
+		///...
+	}
     if (nxc_register_api(api_table,"print_float",do_print_float))
+	{
+		///...
+	}
     ///load script max 8KB ...
     str1 = nxc_load_file("./test.c",8*1024,0);
 
     ///compile script ...
     //image = nxc_do_compile(compiler,"test.c",str1);
-    image = nxc_compile_ex(str1,"test.c",xmalloc,xfree,0,(nxc_vprintf_t)output_gw);
+    image = nxc_compile_ex(str1,"test.c",xmalloc,xfree,0,(nxc_vprintf_t)output_proc);
 
     ///release script memory ...
     nxc_pfree(str1);
@@ -184,7 +189,7 @@ int main_compile_and_reloc(int argc,char *argv[])
     ///do relocation ...
     nxc_script_image_do_reloc(another,(long)another + sizeof(*another),(long)another + sizeof(*another) + another->data_seg_size);
 
-    nxc_script_image_do_fix_api(another/*image*/,api_table);
+    nxc_script_image_do_fix_api(another/*image*/,api_table,output_proc,0);
 
     addr = nxc_script_image_do_find_sym_addr(another,"main");
     if (addr)
@@ -229,7 +234,7 @@ int main(int argc,char *argv[])
     
     ///compile script ...
     //image = nxc_do_compile(compiler,"test.c",str1);
-    image = nxc_compile_ex(str1,"test.c",xmalloc,xfree,0,(nxc_vprintf_t)output_gw);
+    image = nxc_compile_ex(str1,"test.c",xmalloc,xfree,0,(nxc_vprintf_t)output_proc);
     
     ///release script memory ...
     nxc_pfree(str1);
@@ -252,7 +257,7 @@ int main(int argc,char *argv[])
     }
     
     ///fix Import-table ...
-    nxc_script_image_do_fix_api(image,api_table);
+    nxc_script_image_do_fix_api(image,api_table,0,0);
     
     ///find symbol by name ...
     addr = nxc_script_image_do_find_sym_addr(image,"main");
