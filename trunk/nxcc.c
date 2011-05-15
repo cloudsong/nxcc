@@ -189,7 +189,7 @@ int main_compile_and_reloc(int argc,char *argv[])
     ///do relocation ...
     nxc_script_image_do_reloc(another,(long)another + sizeof(*another),(long)another + sizeof(*another) + another->data_seg_size);
 
-    nxc_script_image_do_fix_api(another/*image*/,api_table,output_proc,0);
+    nxc_script_image_do_fix_api(another/*image*/,api_table,(nxc_vprintf_t)output_proc,0);
 
     addr = nxc_script_image_do_find_sym_addr(another,"main");
     if (addr)
